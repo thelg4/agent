@@ -191,5 +191,4 @@ class CodeAnalyzer:
                             "type": "method"
                         })
                     
-                    
         return results
