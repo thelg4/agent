@@ -1,6 +1,6 @@
 # Code Assistant
 
-A powerful tool for analyzing, understanding, and testing Python codebases through an intelligent agent system. Code Assistant parses your Python code, builds a knowledge graph of its structure, generates vector embeddings for semantic search, and provides a natural language interface to query and test your codebase.
+A tool for analyzing, understanding, and testing Python codebases through an intelligent agent system. Code Assistant parses your Python code, builds a knowledge graph of its structure, generates vector embeddings for semantic search, and provides a natural language interface to query and test your codebase.
 
 ## Features
 
