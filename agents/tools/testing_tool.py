@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import importlib.util
 import inspect
+import json
 import re
 from typing import Dict, List, Any, Optional
 
@@ -32,64 +33,6 @@ class FunctionTestingTool(AgentTool):
         )
         self.llm_client = llm_client
         
-    # def run(self, function_name: str, code_analyzer=None) -> Dict[str, Any]:
-    #     """
-    #     Test a specific function in the codebase.
-        
-    #     Args:
-    #         function_name: Name of the function to test
-    #         code_analyzer: CodeAnalyzer instance for finding the function
-            
-    #     Returns:
-    #         Dictionary with test results
-    #     """
-    #     if not code_analyzer:
-    #         return {"error": "Code analyzer required to find the function"}
-            
-    #     # Find the function in the codebase
-    #     functions = code_analyzer.find_function(function_name)
-        
-    #     if not functions:
-    #         return {"error": f"Function '{function_name}' not found in the codebase"}
-            
-    #     # For simplicity, test the first matching function
-    #     # Could be enhanced to handle multiple matches
-    #     function_info = functions[0]
-        
-    #     # Get the function's source code
-    #     source_file = None
-    #     if function_info["type"] == "function":
-    #         module_name = function_info["module"]
-    #         module_info = code_analyzer.find_module(module_name)
-    #         if module_info:
-    #             source_file = module_info.source_file
-    #     elif function_info["type"] == "method":
-    #         # Handle methods in classes
-    #         module_name = function_info["module"]
-    #         module_info = code_analyzer.find_module(module_name)
-    #         if module_info:
-    #             source_file = module_info.source_file
-                
-    #     if not source_file:
-    #         return {"error": f"Could not locate source file for function '{function_name}'"}
-            
-    #     # Extract function definition and dependencies
-    #     func_def, dependencies = self._extract_function(source_file, function_info)
-        
-    #     if not func_def:
-    #         return {"error": f"Could not extract definition for function '{function_name}'"}
-            
-    #     # Generate test cases using LLM
-    #     test_cases = self._generate_test_cases(function_name, func_def, dependencies)
-        
-    #     # Run the tests
-    #     test_results = self._run_tests(function_name, func_def, dependencies, test_cases)
-        
-    #     return {
-    #         "function_name": function_name,
-    #         "test_cases": test_cases,
-    #         "results": test_results
-    #     }
     def run(self, function_name: str, code_analyzer=None) -> Dict[str, Any]:
         """Test a specific function in the codebase."""
         # Force reload to ensure latest code
@@ -135,37 +78,6 @@ class FunctionTestingTool(AgentTool):
             "results": test_results
         }
         
-    # def _extract_function(self, source_file: str, function_info: Dict[str, Any]) -> tuple:
-    #     """Extract function definition and dependencies from source file."""
-    #     try:
-    #         with open(source_file, "r", encoding="utf-8") as f:
-    #             source_lines = f.readlines()
-            
-    #         # Extract function object from function_info
-    #         func = function_info["function"]
-    #         start_line = func.line_number - 1  # Convert to 0-based index
-    #         end_line = func.end_line_number
-            
-    #         # Ensure line numbers are valid
-    #         if start_line < 0 or end_line > len(source_lines) or start_line >= end_line:
-    #             logger.error(f"Invalid line range for '{func.name}': {start_line+1} to {end_line}")
-    #             return None, []
-            
-    #         # Extract function definition
-    #         func_def = "".join(source_lines[start_line:end_line])
-            
-    #         # Extract dependencies (imports) up to the function
-    #         dependencies = []
-    #         for i, line in enumerate(source_lines[:start_line]):
-    #             line = line.strip()
-    #             if line.startswith("import ") or line.startswith("from "):
-    #                 dependencies.append(line + "\n")
-            
-    #         return func_def, dependencies
-        
-    #     except Exception as e:
-    #         logger.error(f"Error extracting function: {str(e)}")
-    #         return None, []
     def _extract_function(self, source_file: str, function_info: Dict[str, Any]) -> tuple:
         """Extract all function definitions from the module containing the target function."""
         try:
@@ -212,64 +124,6 @@ class FunctionTestingTool(AgentTool):
             logger.error(f"Error extracting functions: {str(e)}")
             return None, []
             
-    # def _generate_test_cases(self, function_name: str, func_def: str, dependencies: List[str]) -> List[Dict[str, Any]]:
-    #     """Generate test cases for the function using LLM."""
-    #     if not self.llm_client:
-    #         return [{"error": "LLM client required to generate test cases"}]
-        
-    #     logger.debug(f"Generating test cases for function:\n{func_def}")
-    #     prompt = f"""
-    #     Generate 3-5 test cases for the following function. Return *only* a valid JSON array of test case objects, with no additional text outside the JSON and no trailing comma after the last item. Each test case must include:
-    #     - "description": string describing the test
-    #     - "input": dict matching the function's parameters (use strings for bytes, e.g., "Hello" for b"Hello")
-    #     - "expected": string or array of strings (use arrays for tuple outputs, e.g., ["Hello", " World"])
-        
-    #     Use JSON-compatible types only (strings, numbers, booleans, arrays, objects). For bytes inputs, use plain strings. For tuple outputs, use arrays. For exceptions, use the exception name as a string.
-        
-    #     Dependencies:
-    #     {"".join(dependencies)}
-        
-    #     Function Definition:
-    #     {func_def}
-        
-    #     Example output:
-    #     [
-    #         {{"description": "Normal input", "input": {{"buffer": "Hello World"}}, "expected": ["Hello", " World"]}},
-    #         {{"description": "Empty input", "input": {{"buffer": ""}}, "expected": ["", ""]}},
-    #         {{"description": "Invalid input", "input": {{"buffer": null}}, "expected": "TypeError"}}
-    #     ]
-    #     """
-        
-    #     try:
-    #         response = self.llm_client.get_completion(prompt)
-    #         logger.debug(f"Raw LLM response for test cases: {response}")
-            
-    #         # Parse the response as JSON
-    #         import json
-    #         test_cases = json.loads(response.strip())
-            
-    #         # Validate that it's a list
-    #         if not isinstance(test_cases, list):
-    #             raise ValueError("LLM response must be a JSON array")
-            
-    #         return test_cases
-        
-    #     except json.JSONDecodeError as e:
-    #         logger.error(f"JSON parsing error: {str(e)} - Response: {response}")
-    #         # Fix common Python syntax and trailing commas
-    #         fixed_response = response.replace("b'", '"').replace("'", '"').replace("(", "[").replace(")", "]")
-    #         # Remove trailing comma before closing bracket
-    #         fixed_response = re.sub(r',\s*]', ']', fixed_response.strip())
-    #         try:
-    #             test_cases = json.loads(fixed_response)
-    #             logger.info("Fixed malformed JSON from LLM response (removed trailing comma)")
-    #             return test_cases
-    #         except json.JSONDecodeError as e2:
-    #             logger.error(f"Failed to fix JSON: {str(e2)}")
-    #             return [{"error": f"Invalid JSON from LLM: {str(e)}"}]
-    #     except Exception as e:
-    #         logger.error(f"Error generating test cases: {str(e)}")
-    #         return [{"error": f"Error generating test cases: {str(e)}"}]
     def _generate_test_cases(self, function_name: str, func_def: str, dependencies: List[str]) -> List[Dict[str, Any]]:
         """Generate test cases for the function using LLM."""
         if not self.llm_client:
@@ -463,149 +317,6 @@ class FunctionTestingTool(AgentTool):
         
         finally:
             pass  # Keep temp file for inspection
-    # def _run_tests(
-    #     self, 
-    #     function_name: str, 
-    #     func_def: str, 
-    #     dependencies: List[str], 
-    #     test_cases: List[Dict[str, Any]]
-    # ) -> Dict[str, Any]:
-    #     """Run the tests for the function with all module functions included."""
-    #     import json  # Ensure this is here
-    #     logger.info("Entering _run_tests from /Users/larrygunteriv/github/agent/agents/tools/testing_tool.py")
-    #     if not test_cases or "error" in test_cases[0]:
-    #         return {"error": test_cases[0].get("error", "Invalid test cases")}
-        
-    #     logger.debug("Starting test code construction")
-    #     with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as temp_file:
-    #         temp_path = temp_file.name
-            
-    #         test_code = "import unittest\n"
-    #         test_code += "import json\n"
-    #         logger.debug("Added imports to test_code")
-            
-    #         test_code += "".join(dependencies) + "\n\n"
-    #         logger.debug("Added dependencies to test_code")
-            
-    #         test_code += func_def + "\n\n"
-    #         logger.debug("Added all function definitions to test_code")
-            
-    #         test_code += f"class Test{function_name.capitalize()}(unittest.TestCase):\n"
-    #         logger.debug("Added class definition to test_code")
-            
-    #         for i, test_case in enumerate(test_cases):
-    #             if "error" in test_case:
-    #                 continue
-                    
-    #             description = test_case.get("description", f"Test case {i+1}")
-    #             input_data = test_case.get("input", {})
-    #             expected = test_case.get("expected", None)
-                
-    #             logger.debug(f"Building test case {i+1}: {description}")
-    #             input_str = json.dumps(input_data)
-    #             expected_str = json.dumps(expected)
-                
-    #             test_method = (
-    #                 f"    def test_{i+1}(self):\n"
-    #                 f"        \"\"\"Test: {description}\"\"\"\n"
-    #                 f"        inputs = json.loads('''{input_str}''')\n"
-    #                 f"        expected = json.loads('''{expected_str}''')\n"
-    #                 f"        \n"
-    #                 f"        # Convert inputs to bytes\n"
-    #                 f"        if isinstance(inputs, dict):\n"
-    #                 f"            for key in inputs:\n"
-    #                 f"                if isinstance(inputs[key], str):\n"
-    #                 f"                    inputs[key] = inputs[key].encode('utf-8')\n"
-    #                 f"            result = {function_name}(**inputs)\n"
-    #                 f"        elif isinstance(inputs, list):\n"
-    #                 f"            inputs = [x.encode('utf-8') if isinstance(x, str) else x for x in inputs]\n"
-    #                 f"            result = {function_name}(*inputs)\n"
-    #                 f"        else:\n"
-    #                 f"            if isinstance(inputs, str):\n"
-    #                 f"                inputs = inputs.encode('utf-8')\n"
-    #                 f"            result = {function_name}(inputs)\n"
-    #                 f"        \n"
-    #                 f"        # Convert result bytes to strings for comparison if expected is a list\n"
-    #                 f"        if isinstance(expected, list):\n"
-    #                 f"            result = [r.decode('utf-8') if isinstance(r, bytes) else r for r in result]\n"
-    #                 f"        elif isinstance(expected, str) and expected not in [\"TypeError\", \"ValueError\"]:\n"
-    #                 f"            if isinstance(result, bytes):\n"
-    #                 f"                result = result.decode('utf-8')\n"
-    #                 f"            \n"
-    #                 f"        self.assertEqual(result, expected)\n"
-    #             )
-    #             test_code += test_method
-    #             logger.debug(f"Added test case {i+1} to test_code")
-            
-    #         test_code += "\n"
-    #         test_code += "if __name__ == '__main__':\n"
-    #         test_code += "    unittest.main()\n"
-    #         logger.debug(f"Completed test_code construction:\n{test_code}")
-    #         temp_file.write(test_code.encode('utf-8'))
-    #         logger.info(f"Temporary test file saved at {temp_path} for inspection")
-        
-    #     try:
-    #         from io import StringIO
-    #         original_stdout = sys.stdout
-    #         original_stderr = sys.stderr
-            
-    #         sys.stdout = StringIO()
-    #         sys.stderr = StringIO()
-            
-    #         test_results = {
-    #             "passed": [],
-    #             "failed": [],
-    #             "errors": []
-    #         }
-            
-    #         try:
-    #             loader = unittest.TestLoader()
-    #             spec = importlib.util.spec_from_file_location("test_module", temp_path)
-    #             test_module = importlib.util.module_from_spec(spec)
-    #             logger.debug(f"Executing test module from {temp_path}")
-    #             spec.loader.exec_module(test_module)
-                
-    #             suite = loader.loadTestsFromModule(test_module)
-    #             result = unittest.TextTestRunner(verbosity=2).run(suite)
-    #             for test in result.failures:
-    #                 test_name = test[0].id().split('.')[-1]
-    #                 test_results["failed"].append({
-    #                     "name": test_name,
-    #                     "message": test[1]
-    #                 })
-                    
-    #             for test in result.errors:
-    #                 test_name = test[0].id().split('.')[-1]
-    #                 test_results["errors"].append({
-    #                     "name": test_name,
-    #                     "message": test[1]
-    #                 })
-                    
-    #             all_tests = list(suite)
-    #             passed_count = len(all_tests) - len(result.failures) - len(result.errors)
-    #             test_results["passed_count"] = passed_count
-    #             test_results["total"] = len(all_tests)
-                
-    #         except Exception as e:
-    #             test_results["errors"].append({
-    #                 "name": "test_execution",
-    #                 "message": str(e)
-    #             })
-    #             logger.error(f"Test execution failed: {str(e)}")
-                
-    #         test_output = sys.stdout.getvalue()
-    #         test_errors = sys.stderr.getvalue()
-            
-    #         sys.stdout = original_stdout
-    #         sys.stderr = original_stderr
-            
-    #         test_results["output"] = test_output
-    #         test_results["error_output"] = test_errors
-            
-    #         return test_results
-        
-    #     finally:
-    #         pass  # Keep temp file for inspection
                 
     def format_results(self, results: Dict[str, Any], question: str, llm_client: Any) -> str:
         """Format test results into a readable answer."""
