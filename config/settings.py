@@ -6,6 +6,7 @@ configuration settings from different sources.
 """
 
 import os
+from dotenv import load_dotenv
 import json
 import logging
 from pathlib import Path
@@ -34,6 +35,16 @@ class Settings:
             config_file: Path to a JSON configuration file
             env_prefix: Prefix for environment variables
         """
+
+        try:
+            dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+            if os.path.exists(dotenv_path):
+                load_dotenv(dotenv_path)
+                logger.debug(f"Loaded environment variables from {dotenv_path}")
+
+        except ImportError:
+            logger.warning("python-dotenv not installed, skipping .env file loading")
+
         self.env_prefix = env_prefix
         self._config: Dict[str, Any] = {}
         
@@ -57,7 +68,7 @@ class Settings:
             "neo4j": {
                 "uri": "bolt://localhost:7687",
                 "user": "neo4j",
-                "password": "password",
+                "password": "12345678",
                 "database": "neo4j"
             },
             
@@ -121,6 +132,8 @@ class Settings:
             
     def _load_from_env(self) -> None:
         """Load configuration from environment variables."""
+
+        logger.debug(f"Environment variables: {list(os.environ.keys())}")
         # Map of environment variable names to config keys
         env_mappings = {
             # Neo4j settings

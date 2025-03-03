@@ -11,6 +11,9 @@ import time
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Union
 
+from dotenv import load_dotenv
+
+
 import openai
 import numpy as np
 
@@ -18,6 +21,8 @@ from ...core.schema import CodeChunk
 
 logger = logging.getLogger(__name__)
 
+env_path = os.path.join(os.getcwd(), '.env')
+load_dotenv(dotenv_path=env_path)
 
 class BaseEmbedder(ABC):
     """
@@ -110,6 +115,7 @@ class OpenAIEmbedder(BaseEmbedder):
         # Set API key
         if api_key:
             openai.api_key = api_key
+            print("OPENAI API KEY: ", api_key)
         elif os.environ.get("OPENAI_API_KEY"):
             openai.api_key = os.environ["OPENAI_API_KEY"]
         else:

@@ -44,7 +44,7 @@ class VectorStore:
             "dimension": dimension
         }
         
-        self.dimension = self.config.get("dimension", dimension)
+        self.dimension = int(self.config.get("dimension", dimension))
         self.index = None
         self.metadata = []
         
@@ -52,6 +52,10 @@ class VectorStore:
         if os.path.exists(self.config["index_path"]) and os.path.exists(self.config["metadata_path"]):
             self.load()
         else:
+            
+            # check for dimensions
+            if self.dimension <= 0:
+                raise ValueError(f"Invalid dimension: {self.dimension}. Must be a positive integer.")
             # Initialize a new index
             self.index = faiss.IndexFlatL2(self.dimension)
             logger.info(f"Created new FAISS index with dimension {self.dimension}")

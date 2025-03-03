@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List
 
 from .config.logging_config import configure_logging
 from .config.settings import get_settings
-from .core.ast_parser import CodeAnalyzer
+from .core.code_analyzer import CodeAnalyzer
 from .knowledge.graph.neo4j_client import Neo4jClient
 from .knowledge.graph.graph_builder import CodeKnowledgeGraphBuilder
 from .knowledge.vector.chunk_extractor import ChunkExtractor
@@ -300,7 +300,6 @@ def run_query(args, settings):
         
     return True
 
-
 def run_analyze(args, settings):
     """
     Run a complete analysis (parse, graph, embed).
@@ -315,7 +314,11 @@ def run_analyze(args, settings):
     logging.info(f"Running complete analysis on {directory}")
     
     # First parse the directory
-    modules = run_parse(args, settings)
+    parse_args = argparse.Namespace(
+        directory=directory,
+        output=None  # Add the missing output attribute
+    )
+    modules = run_parse(parse_args, settings)
     
     if not modules:
         logging.error("Parsing failed, cannot continue with analysis")
@@ -347,6 +350,52 @@ def run_analyze(args, settings):
         
     logging.info("Complete analysis finished successfully")
     return True
+# def run_analyze(args, settings):
+#     """
+#     Run a complete analysis (parse, graph, embed).
+    
+#     Args:
+#         args: Command line arguments
+#         settings: Application settings
+#     """
+#     directory = args.directory
+#     clear_existing = args.clear
+    
+#     logging.info(f"Running complete analysis on {directory}")
+    
+#     # First parse the directory
+#     modules = run_parse(args, settings)
+    
+#     if not modules:
+#         logging.error("Parsing failed, cannot continue with analysis")
+#         return False
+        
+#     # Create graph arguments
+#     graph_args = argparse.Namespace(
+#         directory=directory,
+#         clear=clear_existing
+#     )
+    
+#     # Create embeddings arguments
+#     embed_args = argparse.Namespace(
+#         directory=directory,
+#         index_path=None,
+#         metadata_path=None,
+#         api_key=None
+#     )
+    
+#     # Run graph creation
+#     if not run_graph(graph_args, settings):
+#         logging.error("Graph creation failed")
+#         return False
+        
+#     # Run embedding creation
+#     if not run_embed(embed_args, settings):
+#         logging.error("Embedding creation failed")
+#         return False
+        
+#     logging.info("Complete analysis finished successfully")
+#     return True
 
 
 def run_config(args, settings):

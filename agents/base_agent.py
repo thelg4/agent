@@ -31,7 +31,7 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    def init(self) -> bool:
+    def initialize(self) -> bool:
         '''
         Initialize the agent and it's resources
 

@@ -7,7 +7,7 @@ generating vector embeddings, and answering questions about code.
 
 __version__ = "0.1.0"
 
-from .core.ast_parser import CodeAnalyzer
+from .core.code_analyzer import CodeAnalyzer
 from .core.schema import (
     ModuleInfo, 
     ClassInfo, 
