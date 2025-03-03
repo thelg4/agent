@@ -158,6 +158,40 @@ class CodeAnalyzer:
                     
         return results
     
+    # def find_function(self, function_name: str) -> List[Dict[str, Any]]:
+    #     """
+    #     Find functions by name across all modules.
+        
+    #     Args:
+    #         function_name: Name of the function to find
+            
+    #     Returns:
+    #         List of dictionaries with module and function information
+    #     """
+    #     results = []
+        
+    #     for module_name, module in self.modules_by_name.items():
+    #         # Check module-level functions
+    #         for func in module.functions:
+    #             if func.name == function_name:
+    #                 results.append({
+    #                     "module": module_name,
+    #                     "function": func,
+    #                     "type": "function"
+    #                 })
+            
+    #         # Check class methods
+    #         for cls in module.classes:
+    #             for method in cls.methods:
+    #                 if method.name == function_name:
+    #                     results.append({
+    #                         "module": module_name,
+    #                         "class": cls.name,
+    #                         "function": method,
+    #                         "type": "method"
+    #                     })
+                    
+    #     return results
     def find_function(self, function_name: str) -> List[Dict[str, Any]]:
         """
         Find functions by name across all modules.
@@ -169,26 +203,27 @@ class CodeAnalyzer:
             List of dictionaries with module and function information
         """
         results = []
+        target = function_name.lower()
         
         for module_name, module in self.modules_by_name.items():
-            # Check module-level functions
+            # Check module-level functions (case-insensitive)
             for func in module.functions:
-                if func.name == function_name:
+                if func.name.lower() == target:
                     results.append({
                         "module": module_name,
                         "function": func,
                         "type": "function"
                     })
             
-            # Check class methods
+            # Check class methods (case-insensitive)
             for cls in module.classes:
                 for method in cls.methods:
-                    if method.name == function_name:
+                    if method.name.lower() == target:
                         results.append({
                             "module": module_name,
                             "class": cls.name,
                             "function": method,
                             "type": "method"
                         })
-                    
+                        
         return results
