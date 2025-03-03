@@ -18,6 +18,7 @@ from ..core.schema import AgentState
 from .tools.knowledge_tool import KnowledgeGraphTool
 from .tools.vector_tool import VectorStoreTool
 from .tools.github_tool import GitHubTool
+from .tools.testing_tool import FunctionTestingTool
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ class CodeAssistantAgent(BaseAgent):
         self.knowledge_tool: Optional[KnowledgeGraphTool] = None
         self.vector_tool: Optional[VectorStoreTool] = None
         self.github_tool: Optional[GitHubTool] = None
+        self.testing_tool: Optional[FunctionTestingTool] = None
         
         # LangGraph workflow
         self.workflow: Optional[StateGraph] = None
@@ -156,6 +158,8 @@ class CodeAssistantAgent(BaseAgent):
                 }
                 
                 self.github_tool = GitHubTool(github_config)
+
+            self.testing_tool = FunctionTestingTool(self.llm_client)
                 
             # Build the workflow
             self._build_graph()
@@ -199,6 +203,9 @@ class CodeAssistantAgent(BaseAgent):
             
         if self.github_tool:
             self.workflow.add_node("query_github", self.query_github)
+
+        if self.testing_tool:
+            self.workflow.add_node("query_function_test", self.query_function_test)
             
         self.workflow.add_node("generate_final_answer", self.generate_final_answer)
         
@@ -213,6 +220,9 @@ class CodeAssistantAgent(BaseAgent):
             
         if self.github_tool:
             edges["github"] = "query_github"
+
+        if self.testing_tool:
+            edges["function_test"] = "query_function_test"
             
         # Add fallback option
         if self.vector_tool:
@@ -221,6 +231,7 @@ class CodeAssistantAgent(BaseAgent):
             edges["default"] = "query_knowledge_graph"
         elif self.github_tool:
             edges["default"] = "query_github"
+
         else:
             edges["default"] = "generate_final_answer"
             
@@ -240,6 +251,9 @@ class CodeAssistantAgent(BaseAgent):
             
         if self.github_tool:
             self.workflow.add_edge("query_github", "generate_final_answer")
+
+        if self.testing_tool:
+            self.workflow.add_edge("query_function_test", "generate_final_answer")
             
         self.workflow.add_edge("generate_final_answer", END)
         
@@ -267,6 +281,8 @@ class CodeAssistantAgent(BaseAgent):
             return "vector_store"
         elif tool_decision == "github" and self.github_tool:
             return "github"
+        elif tool_decision == "function_test" and self.testing_tool:
+            return "function_test"
         else:
             logger.warning(f"Unclear tool decision: {tool_decision}. Using default route.")
             return "default"
@@ -295,6 +311,9 @@ class CodeAssistantAgent(BaseAgent):
             
         if self.github_tool:
             available_tools.append("github - for questions about repositories, commit history, contributors, etc.")
+
+        if self.testing_tool:
+            available_tools.append("testing - for testing a function the user specifies")
             
         tools_text = "\n- ".join([""] + available_tools)
         
@@ -304,7 +323,7 @@ class CodeAssistantAgent(BaseAgent):
         In a friendly and natural manner, explain your understanding of the user's intent.
         Then decide which tool would best answer the question from these available tools:{tools_text}
         
-        At the end of your response, on a new line, output only the final decision exactly as one of these keywords: "knowledge_graph", "vector_store", or "github".
+        At the end of your response, on a new line, output only the final decision exactly as one of these keywords: "knowledge_graph", "vector_store", "github", or "function_test".
         """
         
         try:
@@ -412,6 +431,58 @@ class CodeAssistantAgent(BaseAgent):
         except Exception as e:
             logger.error(f"GitHub query failed: {str(e)}")
             return {"github_repos": []}
+        
+    def query_function_test(self, state: AgentState) -> AgentState:
+        """
+        Test a specific function mentioned in the question.
+        
+        Args:
+            state: Current agent state
+            
+        Returns:
+            Updated agent state with test results
+        """
+        if not self.testing_tool:
+            return {"test_results": {"error": "Testing tool not available"}}
+            
+        question = state["question"]
+        
+        # Extract function name from question
+        import re
+        # match = re.search(r'test\s+([a-zA-Z0-9_]+)', question)
+        matches = re.findall(r'test\s+([a-zA-Z0-9_]+)', question)
+        if not matches:
+            return {"test_results": {"error": "Could not identify function to test"}}
+            
+        # function_name = match.group(1)
+        function_name = matches[-1]
+        
+        try:
+            # Import code analyzer
+            from ..core.code_analyzer import CodeAnalyzer
+            
+            # Initialize analyzer with current modules
+            analyzer = CodeAnalyzer()
+            
+            # Check if we have stored modules
+            if hasattr(self, 'modules_by_name') and self.modules_by_name:
+                analyzer.modules_by_name = self.modules_by_name
+            else:
+                # We need to parse the codebase if modules aren't already loaded
+                # TODO: persist from the first command run
+                directory = self.config.get("code_directory", "/Users/larrygunteriv/Documents/ast-knowledge_graph/cloudapi")
+                analyzer.parse_directory(directory)
+                # Store for future use
+                self.modules_by_name = analyzer.modules_by_name
+            
+            # Run tests
+            results = self.testing_tool.run(function_name, analyzer)
+            
+            return {"test_results": results}
+            
+        except Exception as e:
+            logger.error(f"Function testing failed: {str(e)}")
+            return {"test_results": {"error": f"Error during testing: {str(e)}"}}
             
     def generate_final_answer(self, state: AgentState) -> AgentState:
         """
@@ -427,27 +498,43 @@ class CodeAssistantAgent(BaseAgent):
         
         if state.get("knowledge_results") and self.knowledge_tool:
             # Format knowledge graph results
-            answer = self.knowledge_tool.format_results(
-                state["knowledge_results"], 
-                question, 
-                self.llm_client
-            )
+            knowledge_results = state.get("knowledge_results")
+            if knowledge_results is not None:
+                answer = self.knowledge_tool.format_results(
+                    knowledge_results, 
+                    question, 
+                    self.llm_client
+                )
             
         elif state.get("vector_results") and self.vector_tool:
             # Format vector store results
-            answer = self.vector_tool.format_results(
-                state["vector_results"], 
-                question, 
-                self.llm_client
-            )
+            vector_results = state.get("vector_results")
+            if vector_results is not None:
+                answer = self.vector_tool.format_results(
+                    vector_results, 
+                    question, 
+                    self.llm_client
+                )
             
         elif state.get("github_repos") and self.github_tool:
             # Format GitHub results
-            answer = self.github_tool.format_results(
-                state["github_repos"], 
-                question, 
-                self.llm_client
-            )
+            github_results = state.get("github_repos")
+            if github_results is not None:
+                answer = self.github_tool.format_results(
+                    github_results, 
+                    question, 
+                    self.llm_client
+                )
+
+        elif state.get("test_results") and self.testing_tool:
+            # Format test results
+            test_results = state.get("test_results")
+            if test_results is not None:
+                answer = self.testing_tool.format_results(
+                    test_results,
+                    question,
+                    self.llm_client
+                )
             
         else:
             # No results from any tool
@@ -479,6 +566,7 @@ class CodeAssistantAgent(BaseAgent):
                 knowledge_results=None,
                 vector_results=None,
                 github_repos=None,
+                test_results=None,
                 final_answer=None
             )
             
@@ -492,6 +580,7 @@ class CodeAssistantAgent(BaseAgent):
             Has Knowledge Results: {bool(final_state.get('knowledge_results'))}
             Has Vector Results: {bool(final_state.get('vector_results'))}
             Has GitHub Results: {bool(final_state.get('github_repos'))}
+            Has Testing Results: {bool(final_state.get('test_results'))}
             """)
             
             return final_state.get("final_answer", "No answer generated")
@@ -527,6 +616,9 @@ class CodeAssistantAgent(BaseAgent):
             
         if self.github_tool:
             dot.node('query_github', 'Query\nGitHub', shape='box')
+
+        if self.testing_tool:
+            dot.node('query_function_test', 'Test\nFunction', shape='box')
             
         dot.node('generate_final_answer', 'Generate\nFinal Answer', shape='box')
         dot.node('END', 'End', shape='doublecircle')
@@ -546,6 +638,10 @@ class CodeAssistantAgent(BaseAgent):
             dot.edge('classify_question', 'query_github', label='github')
             dot.edge('query_github', 'generate_final_answer')
             
+        if self.testing_tool:
+            dot.edge('classify_question', 'query_function_test', label='function_test')
+            dot.edge('query_function_test', 'generate_final_answer')
+
         dot.edge('generate_final_answer', 'END')
         
         # Save the visualization
@@ -572,6 +668,9 @@ class CodeAssistantAgent(BaseAgent):
             
         if self.github_tool:
             nodes.append("query_github")
+
+        if self.testing_tool:
+            nodes.append("query_function_test")
             
         nodes.append("generate_final_answer")
         
@@ -590,6 +689,9 @@ class CodeAssistantAgent(BaseAgent):
             
         if self.github_tool:
             print("  └─ github → query_github")
+
+        if self.testing_tool:
+            print("  └─ function_test → query_function_test")
         
         print("\nDirect Edges:")
         print("-"*20)
@@ -602,6 +704,9 @@ class CodeAssistantAgent(BaseAgent):
             
         if self.github_tool:
             print("query_github → generate_final_answer")
+
+        if self.testing_tool:
+            print("query_function_test → generate_final_answer")
             
         print("generate_final_answer → END")
         

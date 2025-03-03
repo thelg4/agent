@@ -96,6 +96,7 @@ class AgentState(TypedDict, total=False):
     knowledge_results: Optional[list]
     vector_results: Optional[list]
     github_repos: Optional[list]
+    test_results: Optional[Dict[str, Any]]
     final_answer: Optional[str]
 
 
