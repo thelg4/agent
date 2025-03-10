@@ -19,6 +19,7 @@ from .tools.knowledge_tool import KnowledgeGraphTool
 from .tools.vector_tool import VectorStoreTool
 from .tools.github_tool import GitHubTool
 from .tools.testing_tool import FunctionTestingTool
+from .tools.codebase_reporter import CodebaseReportGenerator  # Import the new reporter tool
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class LLMClient:
     and embeddings using an LLM provider.
     """
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-3.5-turbo-instruct", temperature: float = 0.0):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini", temperature: float = 0.0):
         """
         Initialize the LLM client.
         
@@ -96,6 +97,10 @@ class CodeAssistantAgent(BaseAgent):
         self.vector_tool: Optional[VectorStoreTool] = None
         self.github_tool: Optional[GitHubTool] = None
         self.testing_tool: Optional[FunctionTestingTool] = None
+        self.reporter_tool: Optional[CodebaseReportGenerator] = None  # Add new tool
+        
+        # Add code analyzer instance as a shared resource
+        self.code_analyzer = None
         
         # LangGraph workflow
         self.workflow: Optional[StateGraph] = None
@@ -113,7 +118,7 @@ class CodeAssistantAgent(BaseAgent):
             
             # Initialize LLM client
             api_key = self.config.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
-            model = self.config.get("llm_model", "gpt-3.5-turbo-instruct")
+            model = self.config.get("llm_model", "gpt-4o-mini")
             temperature = self.config.get("temperature", 0.0)
             
             self.llm_client = LLMClient(api_key=api_key, model=model, temperature=temperature)
@@ -160,6 +165,20 @@ class CodeAssistantAgent(BaseAgent):
                 self.github_tool = GitHubTool(github_config)
 
             self.testing_tool = FunctionTestingTool(self.llm_client)
+            
+            # Initialize CodebaseReportGenerator
+            self.reporter_tool = CodebaseReportGenerator(
+                llm_client=self.llm_client,
+                vector_store=self.vector_tool.vector_store if self.vector_tool else None,
+                knowledge_graph=self.knowledge_tool.neo4j_client if self.knowledge_tool else None
+            )
+            
+            # Initialize code analyzer if it will be needed
+            from ..core.code_analyzer import CodeAnalyzer
+            self.code_analyzer = CodeAnalyzer()
+            # Parse the codebase
+            code_dir = self.config.get("code_directory", "/Users/larrygunteriv/github/agent")
+            self.code_analyzer.parse_directory(code_dir)
                 
             # Build the workflow
             self._build_graph()
@@ -178,6 +197,10 @@ class CodeAssistantAgent(BaseAgent):
         # Clean up Neo4j client
         if self.knowledge_tool and hasattr(self.knowledge_tool, "neo4j_client"):
             self.knowledge_tool.neo4j_client.close()
+        
+        # Clean up reporter tool connections
+        if self.reporter_tool:
+            self.reporter_tool.close()
             
     def _build_graph(self) -> None:
         """
@@ -207,6 +230,10 @@ class CodeAssistantAgent(BaseAgent):
         if self.testing_tool:
             self.workflow.add_node("query_function_test", self.query_function_test)
             
+        # Add the codebase reporter node
+        if self.reporter_tool:
+            self.workflow.add_node("generate_codebase_report", self.generate_codebase_report)
+            
         self.workflow.add_node("generate_final_answer", self.generate_final_answer)
         
         # Set up conditional edges based on tool selection
@@ -224,6 +251,10 @@ class CodeAssistantAgent(BaseAgent):
         if self.testing_tool:
             edges["function_test"] = "query_function_test"
             
+        # Add codebase reporter edge
+        if self.reporter_tool:
+            edges["codebase_report"] = "generate_codebase_report"
+            
         # Add fallback option
         if self.vector_tool:
             edges["default"] = "query_vector_store"
@@ -231,7 +262,6 @@ class CodeAssistantAgent(BaseAgent):
             edges["default"] = "query_knowledge_graph"
         elif self.github_tool:
             edges["default"] = "query_github"
-
         else:
             edges["default"] = "generate_final_answer"
             
@@ -254,6 +284,10 @@ class CodeAssistantAgent(BaseAgent):
 
         if self.testing_tool:
             self.workflow.add_edge("query_function_test", "generate_final_answer")
+            
+        # Connect codebase reporter to answer generation
+        if self.reporter_tool:
+            self.workflow.add_edge("generate_codebase_report", "generate_final_answer")
             
         self.workflow.add_edge("generate_final_answer", END)
         
@@ -283,6 +317,8 @@ class CodeAssistantAgent(BaseAgent):
             return "github"
         elif tool_decision == "function_test" and self.testing_tool:
             return "function_test"
+        elif tool_decision == "codebase_report" and self.reporter_tool:
+            return "codebase_report"
         else:
             logger.warning(f"Unclear tool decision: {tool_decision}. Using default route.")
             return "default"
@@ -313,7 +349,10 @@ class CodeAssistantAgent(BaseAgent):
             available_tools.append("github - for questions about repositories, commit history, contributors, etc.")
 
         if self.testing_tool:
-            available_tools.append("testing - for testing a function the user specifies")
+            available_tools.append("function_test - for testing a function the user specifies")
+            
+        if self.reporter_tool:
+            available_tools.append("codebase_report - for generating reports about the codebase structure, dependencies, and insights")
             
         tools_text = "\n- ".join([""] + available_tools)
         
@@ -323,7 +362,11 @@ class CodeAssistantAgent(BaseAgent):
         In a friendly and natural manner, explain your understanding of the user's intent.
         Then decide which tool would best answer the question from these available tools:{tools_text}
         
-        At the end of your response, on a new line, output only the final decision exactly as one of these keywords: "knowledge_graph", "vector_store", "github", or "function_test".
+        At the end of your response, on a new line, output only the final decision exactly as one of these keywords: 
+        "knowledge_graph", "vector_store", "github", "function_test", or "codebase_report".
+        
+        Choose "codebase_report" if the user is asking about the overall structure, insights, or analysis of the codebase
+        as a whole, including reports about dependencies, metrics, or comprehensive overviews.
         """
         
         try:
@@ -484,6 +527,79 @@ class CodeAssistantAgent(BaseAgent):
             logger.error(f"Function testing failed: {str(e)}")
             return {"test_results": {"error": f"Error during testing: {str(e)}"}}
             
+    def generate_codebase_report(self, state: AgentState) -> AgentState:
+        """
+        Generate a report about the codebase using the CodebaseReportGenerator.
+        
+        Args:
+            state: Current agent state
+            
+        Returns:
+            Updated agent state with report results
+        """
+        if not self.reporter_tool or not self.code_analyzer:
+            return {"report_results": {"error": "Codebase reporter tool or code analyzer not available"}}
+            
+        question = state["question"]
+        
+        try:
+            # Determine report type based on question
+            report_type = self._determine_report_type(question)
+            
+            # Generate report
+            report = self.reporter_tool.run(
+                code_analyzer=self.code_analyzer,
+                report_type=report_type,
+                output_format="markdown",
+                include_visualization=True
+            )
+            
+            return {"report_results": report}
+            
+        except Exception as e:
+            logger.error(f"Codebase report generation failed: {str(e)}")
+            return {"report_results": {"error": f"Error generating codebase report: {str(e)}"}}
+            
+    def _determine_report_type(self, question: str) -> str:
+        """
+        Determine the type of report to generate based on the question.
+        
+        Args:
+            question: The user's question
+            
+        Returns:
+            Report type: 'comprehensive', 'summary', 'dependencies', or 'knowledge_graph'
+        """
+        if not self.llm_client:
+            # Default to comprehensive if no LLM available
+            return "comprehensive"
+            
+        prompt = f"""
+        Based on this question: "{question}"
+        
+        Determine the most appropriate type of code report to generate from the following options:
+        - comprehensive: A complete analysis of the codebase with all available insights
+        - summary: A brief overview with key metrics and important components
+        - dependencies: Focused on module and function dependencies and relationships
+        - knowledge_graph: Focused on insights from the knowledge graph structure
+        
+        Answer with just one of these options: comprehensive, summary, dependencies, or knowledge_graph.
+        """
+        
+        try:
+            response = self.llm_client.get_completion(prompt).strip().lower()
+            
+            valid_types = ["comprehensive", "summary", "dependencies", "knowledge_graph"]
+            if response in valid_types:
+                return response
+            else:
+                logger.warning(f"Invalid report type '{response}', defaulting to comprehensive")
+                return "comprehensive"
+                
+        except Exception as e:
+            logger.error(f"Error determining report type: {str(e)}")
+            return "comprehensive"
+            
     def generate_final_answer(self, state: AgentState) -> AgentState:
         """
         Generate final answer based on query results.
@@ -535,6 +651,17 @@ class CodeAssistantAgent(BaseAgent):
                     question,
                     self.llm_client
                 )
+                
+        elif state.get("report_results") and self.reporter_tool:
+            # Format codebase report results
+            report_results = state.get("report_results")
+            # The report is already formatted as Markdown, so we can use it directly
+            if isinstance(report_results, dict) and "content" in report_results:
+                answer = report_results["content"]
+            elif isinstance(report_results, dict) and "error" in report_results:
+                answer = f"Error generating codebase report: {report_results['error']}"
+            else:
+                answer = "Generated a codebase report, but the format was unexpected."
             
         else:
             # No results from any tool
@@ -620,6 +747,9 @@ class CodeAssistantAgent(BaseAgent):
         if self.testing_tool:
             dot.node('query_function_test', 'Test\nFunction', shape='box')
             
+        if self.reporter_tool:
+            dot.node('generate_codebase_report', 'Generate\nCodebase Report', shape='box')
+            
         dot.node('generate_final_answer', 'Generate\nFinal Answer', shape='box')
         dot.node('END', 'End', shape='doublecircle')
         
@@ -641,7 +771,11 @@ class CodeAssistantAgent(BaseAgent):
         if self.testing_tool:
             dot.edge('classify_question', 'query_function_test', label='function_test')
             dot.edge('query_function_test', 'generate_final_answer')
-
+            
+        if self.reporter_tool:
+            dot.edge('classify_question', 'generate_codebase_report', label='codebase_report')
+            dot.edge('generate_codebase_report', 'generate_final_answer')
+            
         dot.edge('generate_final_answer', 'END')
         
         # Save the visualization
@@ -672,6 +806,9 @@ class CodeAssistantAgent(BaseAgent):
         if self.testing_tool:
             nodes.append("query_function_test")
             
+        if self.reporter_tool:
+            nodes.append("generate_codebase_report")
+            
         nodes.append("generate_final_answer")
         
         for node in nodes:
@@ -692,6 +829,9 @@ class CodeAssistantAgent(BaseAgent):
 
         if self.testing_tool:
             print("  └─ function_test → query_function_test")
+            
+        if self.reporter_tool:
+            print("  └─ codebase_report → generate_codebase_report")
         
         print("\nDirect Edges:")
         print("-"*20)
@@ -707,6 +847,9 @@ class CodeAssistantAgent(BaseAgent):
 
         if self.testing_tool:
             print("query_function_test → generate_final_answer")
+            
+        if self.reporter_tool:
+            print("generate_codebase_report → generate_final_answer")
             
         print("generate_final_answer → END")
         
@@ -756,6 +899,10 @@ class CodeAssistantAgent(BaseAgent):
                 print("Using GitHub API")
                 query_state = self.query_github(classification_state)
                 print(f"Results obtained: {len(query_state.get('github_repos', []))} repositories")
+            elif tool_decision == 'codebase_report' and self.reporter_tool:
+                print("Generating Codebase Report")
+                query_state = self.generate_codebase_report(classification_state)
+                print(f"Report generated: {query_state.get('report_results', {}).get('content', 'No content')}")
             else:
                 print("No suitable tool available")
             
@@ -774,6 +921,8 @@ class CodeAssistantAgent(BaseAgent):
                 path += "Vector Store Query"
             elif tool_decision == 'github':
                 path += "GitHub Query"
+            elif tool_decision == 'codebase_report':
+                path += "Codebase Report Generation"
             else:
                 path += "No Query"
                 

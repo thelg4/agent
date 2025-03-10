@@ -158,40 +158,6 @@ class CodeAnalyzer:
                     
         return results
     
-    # def find_function(self, function_name: str) -> List[Dict[str, Any]]:
-    #     """
-    #     Find functions by name across all modules.
-        
-    #     Args:
-    #         function_name: Name of the function to find
-            
-    #     Returns:
-    #         List of dictionaries with module and function information
-    #     """
-    #     results = []
-        
-    #     for module_name, module in self.modules_by_name.items():
-    #         # Check module-level functions
-    #         for func in module.functions:
-    #             if func.name == function_name:
-    #                 results.append({
-    #                     "module": module_name,
-    #                     "function": func,
-    #                     "type": "function"
-    #                 })
-            
-    #         # Check class methods
-    #         for cls in module.classes:
-    #             for method in cls.methods:
-    #                 if method.name == function_name:
-    #                     results.append({
-    #                         "module": module_name,
-    #                         "class": cls.name,
-    #                         "function": method,
-    #                         "type": "method"
-    #                     })
-                    
-    #     return results
     def find_function(self, function_name: str) -> List[Dict[str, Any]]:
         """
         Find functions by name across all modules.
@@ -212,7 +178,8 @@ class CodeAnalyzer:
                     results.append({
                         "module": module_name,
                         "function": func,
-                        "type": "function"
+                        "type": "function",
+                        "name": func.name  # Adding name directly for convenience
                     })
             
             # Check class methods (case-insensitive)
@@ -223,7 +190,40 @@ class CodeAnalyzer:
                             "module": module_name,
                             "class": cls.name,
                             "function": method,
-                            "type": "method"
+                            "type": "method",
+                            "name": method.name  # Adding name directly for convenience
                         })
                         
         return results
+        
+    def get_all_functions(self) -> List[Dict[str, Any]]:
+        """
+        Get all functions and methods across all modules.
+        
+        Returns:
+            List of dictionaries with info about all functions in the codebase
+        """
+        all_functions = []
+        
+        for module_name, module in self.modules_by_name.items():
+            # Add module-level functions
+            for func in module.functions:
+                all_functions.append({
+                    "module": module_name,
+                    "function": func,
+                    "type": "function",
+                    "name": func.name
+                })
+            
+            # Add class methods
+            for cls in module.classes:
+                for method in cls.methods:
+                    all_functions.append({
+                        "module": module_name,
+                        "class": cls.name, 
+                        "function": method,
+                        "type": "method",
+                        "name": method.name
+                    })
+                    
+        return all_functions

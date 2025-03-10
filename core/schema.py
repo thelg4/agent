@@ -90,15 +90,23 @@ class CodeChunk:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 class AgentState(TypedDict, total=False):
-    """State maintained throughout the agent's execution."""
+    """State maintained by the agent during a conversation."""
+    
+    # User's question
     question: str
+    
+    # Tool selection
     tool_decision: Optional[str]
-    knowledge_results: Optional[list]
-    vector_results: Optional[list]
-    github_repos: Optional[list]
+    
+    # Results from different tools
+    knowledge_results: Optional[List[Dict[str, Any]]]
+    vector_results: Optional[List[Dict[str, Any]]]
+    github_repos: Optional[List[Dict[str, Any]]]
     test_results: Optional[Dict[str, Any]]
+    report_results: Optional[Dict[str, Any]]  # Add this field for codebase report results
+     
+    # Final answer
     final_answer: Optional[str]
-
 
 class Neo4jConfig(TypedDict, total=False):
     """Configuration for Neo4j connection."""
